@@ -19,34 +19,48 @@ jobs:
       - name: Install xmlstarlet
         run: sudo apt-get install -y xmlstarlet
 
+      - name: Debug Branch Name
+        run: echo "Branch Name: $GITHUB_REF"
+
       - name: Read Current Version and Update
         id: read_update_version
         run: |
           BRANCH_NAME="${GITHUB_REF##*/}"
+          echo "Detected branch: $BRANCH_NAME"
+          
+          # Determine the new version based on the branch name
           if [[ "$BRANCH_NAME" == bugfix/* ]]; then
             VERSION_INCREMENT="1.0.1-SNAPSHOT"
           elif [[ "$BRANCH_NAME" == feature/* ]]; then
             VERSION_INCREMENT="1.1.0-SNAPSHOT"
           elif [[ "$BRANCH_NAME" == major-feature/* ]]; then
             VERSION_INCREMENT="2.0.0-SNAPSHOT"
+          else
+            echo "No version update needed for this branch."
+            exit 0
           fi
+
+          echo "Updating version to: $VERSION_INCREMENT"
 
           # Update all pom.xml files
           find . -name "pom.xml" -exec xmlstarlet ed -u "/project/version" -v "$VERSION_INCREMENT" {} \;
 
-          # Commit the changes if a new version is set
-          if [ -n "$VERSION_INCREMENT" ]; then
+          # Check if any files were modified
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          else
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
             git add .
             git commit -m "Update version to $VERSION_INCREMENT for branch $BRANCH_NAME"
-            git push
+            git push origin HEAD
           fi
 
       - name: Update Version on PR Merge
         if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
         run: |
-          # Remove SNAPSHOT from all pom.xml files on PR merge
+          echo "Removing SNAPSHOT from version on PR merge"
           find . -name "pom.xml" -exec bash -c 'xmlstarlet ed -u "/project/version" -v "$(xmlstarlet sel -t -v "/project/version" "$1" | sed "s/-SNAPSHOT//")" "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
 
           # Commit changes
